@@ -8,9 +8,7 @@ void setup()
   Serial.begin( BAUD_RATE );
 #if !defined(__MIPSEL__)
   while (!Serial); // Wait for serial port to connect - used on Leonardo, Teensy and other boards with built-in USB CDC serial connection
-#endif
-
- 
+#endif 
 
   Serial.print("Starting USB-HID...");
 
@@ -29,8 +27,7 @@ void setup()
 
   Serial.println("OK!");
 
-
-  delay( 200 );
+  //delay( 200 );
 }
 
 void loop()
