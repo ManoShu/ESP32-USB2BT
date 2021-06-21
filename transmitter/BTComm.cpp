@@ -1,29 +1,18 @@
-#include "bt_comm.hpp"
+#include "BTComm.hpp"
 
-#include <Arduino.h>
 #include "BLEDevice.h"
 #include "BLEHIDDevice.h"
 #include "HIDTypes.h"
 #include "HIDKeyboardTypes.h"
 
-#include "custom_usb_hid.hpp"
-#include "bt_reporter.hpp"
-#include "hid_relay.hpp"
-
-#define DEVICE_NAME "USB-2-BT-ESP32 (MNS-0)"
-#define MANUFACTURER "Maker Community"
-
-#define KEYBOARD_COUNTRY 0x00
-
-#define KEYBOARD_PHYSICAL_LAYOUT 0x65 // US // 0x68 // ABNT Brazil
+#include "Debugger.hpp"
 
 #define MODIFIER_ALT 0b100
 #define MODIFIER_SHIFT 0b010
 #define MODIFIER_CTRL 0b001
 
-BTComm Bluetooth;
-
-bool isBleConnected = false;
+#define DEVICE_NAME "USB-2-BT-ESP32 (MNS-0)"
+#define MANUFACTURER "Maker Community"
 
 // Message (report) sent when a key is pressed or released
 struct InputReport
@@ -60,7 +49,7 @@ static const uint8_t REPORT_MAP[] = {
     REPORT_COUNT(1), 0x06, //   6 bytes (for up to 6 concurrently pressed keys)
     REPORT_SIZE(1), 0x08,
     LOGICAL_MINIMUM(1), 0x00,
-    LOGICAL_MAXIMUM(1), KEYBOARD_PHYSICAL_LAYOUT, //   how many keys
+    LOGICAL_MAXIMUM(1), 0x65, //   how many keys
     USAGE_MINIMUM(1), 0x00,
     USAGE_MAXIMUM(1), 0x65,
     HIDINPUT(1), 0x00,     //   Data, Array, Abs
@@ -84,13 +73,6 @@ BLECharacteristic *output;
 
 const InputReport NO_KEY_PRESSED = {};
 
-void BTComm::Init(long speed)
-{
-  //btSerial.begin(speed);
-  // start Bluetooth task
-  xTaskCreate(BTComm::bluetoothTask, "bluetooth", 20000, NULL, 5, NULL);
-}
-
 /*
  * Callbacks related to BLE connection
  */
@@ -99,24 +81,24 @@ class BleKeyboardCallbacks : public BLEServerCallbacks
 
   void onConnect(BLEServer *server)
   {
-    isBleConnected = true;
+    //isBleConnected = true;
 
     // Allow notifications for characteristics
     BLE2902 *cccDesc = (BLE2902 *)input->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
     cccDesc->setNotifications(true);
 
-    Serial.println("Client has connected");
+    DBG_PRINTLN("Client has connected");
   }
 
   void onDisconnect(BLEServer *server)
   {
-    isBleConnected = false;
+    //isBleConnected = false;
 
     // Disallow notifications for characteristics
     BLE2902 *cccDesc = (BLE2902 *)input->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
     cccDesc->setNotifications(false);
 
-    Serial.println("Client has disconnected");
+    DBG_PRINTLN("Client has disconnected");
   }
 };
 
@@ -133,12 +115,33 @@ class OutputCallbacks : public BLECharacteristicCallbacks
   void onWrite(BLECharacteristic *characteristic)
   {
     OutputReport *report = (OutputReport *)characteristic->getData();
-    USB_HID.SetLEDs((uint8_t)report->leds);
-    // Serial.print("LED state: ");
-    // Serial.print((int)report->leds);
-    // Serial.println();
+    if (_ledCallBackFuncitonPointer != NULL)
+    {
+      _ledCallBackFuncitonPointer((uint8_t)report->leds);
+    }
   }
 };
+
+void BTComm::Init(uint8_t *desc_data, size_t desc_data_length)
+{
+  reportSize = desc_data_length;
+  reportDescriptor = new uint8_t[reportSize];
+  for (size_t i = 0; i < reportSize; i++)
+  {
+    reportDescriptor[i] = desc_data[i];
+  }
+
+  xTaskCreate(BTComm::bluetoothTask, "bluetooth", 20000, NULL, 5, NULL);
+
+  // //TODO: Init serial and send descriptor
+  // DBG_PRINTLN("Descriptor:");
+  // for(uint8_t idx = 0; idx < desc_data_length; idx++)
+  // {
+  //   DBG_PRINT(desc_data[idx]);
+  //   DBG_PRINT(" ");
+  // }
+  // DBG_PRINTLN();
+}
 
 void BTComm::bluetoothTask(void *)
 {
@@ -159,33 +162,46 @@ void BTComm::bluetoothTask(void *)
   // set USB vendor and product ID
   hid->pnp(0x02, 0xe502, 0xa111, 0x0210);
   // information about HID device: device is not localized, device can be connected
-  hid->hidInfo(KEYBOARD_COUNTRY, 0x02);
+  hid->hidInfo(0x00, 0x02);
 
   // Security: device requires bonding
   BLESecurity *security = new BLESecurity();
   security->setAuthenticationMode(ESP_LE_AUTH_BOND);
 
   // set report map
+  //hid->reportMap(reportDescriptor, reportSize);
   hid->reportMap((uint8_t *)REPORT_MAP, sizeof(REPORT_MAP));
   hid->startServices();
 
   // set battery level to 100%
-  hid->setBatteryLevel(100);
+  //hid->setBatteryLevel(100);
 
   // advertise the services
   BLEAdvertising *advertising = server->getAdvertising();
   advertising->setAppearance(HID_KEYBOARD);
   advertising->addServiceUUID(hid->hidService()->getUUID());
   advertising->addServiceUUID(hid->deviceInfo()->getUUID());
-  advertising->addServiceUUID(hid->batteryService()->getUUID());
+  //advertising->addServiceUUID(hid->batteryService()->getUUID());
   advertising->start();
 
-  Serial.println("BLE ready");
+  DBG_PRINTLN("BLE ready");
   delay(portMAX_DELAY);
 };
 
-void BTComm::SendKeyboard(uint8_t len, uint8_t *buf)
+//static int ledState = HIGH;
+
+void BTComm::SendReport(uint8_t *buf, size_t len)
 {
+  // digitalWrite(LED_BUILTIN, ledState);
+  // if (ledState == LOW)
+  // {
+  //   ledState = HIGH;
+  // }
+  // else
+  // {
+  //   ledState = LOW;
+  // }
+
   auto needToTriggerTheDamnKey = false;
   for (size_t i = 0; i < len; i++)
   {
@@ -210,7 +226,7 @@ void BTComm::SendKeyboard(uint8_t len, uint8_t *buf)
   {
     // create input report
     InputReport reportQuestion = {
-        .modifiers = 5, //Ctrl + alt,
+        .modifiers = MODIFIER_CTRL & MODIFIER_ALT,
         .reserved = 0,
         .pressedKeys = {
             26, //W
@@ -250,47 +266,18 @@ void BTComm::SendKeyboard(uint8_t len, uint8_t *buf)
   // send the input report
   input->setValue((uint8_t *)&report, sizeof(report));
   input->notify();
-}
 
-void BTComm::SendMouse(int8_t btn, int8_t x, int8_t y, int8_t scroll)
-{
-  SendByte(0xfd);
-  SendByte(0x05);
-  SendByte(0x02);
-  SendSByte(btn);
-  SendSByte(x);
-  SendSByte(y);
-  SendSByte(scroll);
-}
-
-void BTComm::SendMedia(uint8_t lowByte, uint8_t highByte)
-{
-  SendByte(0xfd);
-  SendByte(0x03);
-  SendByte(0x03);
-  SendByte(lowByte);
-  SendByte(highByte);
-}
-
-void BTComm::SendByte(uint8_t b)
-{
-  //btSerial.write(b);
-}
-
-void BTComm::SendSByte(int8_t b)
-{
-  //btSerial.write(b);
-}
-
-void BTComm::CheckReports()
-{
-  // while (btSerial.available())
+  // //TODO: Send report
+  // DBG_PRINT("Report: ");
+  //  for(uint8_t idx = 0; idx < len; idx++)
   // {
-  //   BTReporter.Update(btSerial.read(), BTComm::ReportMessageReceived);
+  //   DBG_PRINT(buf[idx]);
+  //   DBG_PRINT(" ");
   // }
+  //  DBG_PRINTLN();
 }
 
-void BTComm::ReportMessageReceived(uint8_t len, uint8_t *buf)
+void BTComm::SetLedCallback(ledFuncPtr CallBackFuncitonPointer)
 {
-  Relay.HandleHIDReport(len, buf);
+  _ledCallBackFuncitonPointer = CallBackFuncitonPointer;
 }
