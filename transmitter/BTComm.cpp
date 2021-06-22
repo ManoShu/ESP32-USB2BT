@@ -49,7 +49,7 @@ static const uint8_t REPORT_MAP[] = {
     REPORT_COUNT(1), 0x06, //   6 bytes (for up to 6 concurrently pressed keys)
     REPORT_SIZE(1), 0x08,
     LOGICAL_MINIMUM(1), 0x00,
-    LOGICAL_MAXIMUM(1), 0x65, //   how many keys
+    LOGICAL_MAXIMUM(1), 0x73, //   how many keys
     USAGE_MINIMUM(1), 0x00,
     USAGE_MAXIMUM(1), 0x65,
     HIDINPUT(1), 0x00,     //   Data, Array, Abs

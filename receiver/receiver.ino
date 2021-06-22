@@ -11,6 +11,8 @@ void setup()
 
   DBG_PRINTLN("Receiver BEGIN");
 
+  delay(1000); //to wait for the transmitter to be ready first
+
   pinMode(3, OUTPUT);
   
   USBComm::SetDescriptorCallback(BTComm::Init);
